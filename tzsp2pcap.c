@@ -107,6 +107,11 @@ int main(int argc, char **argv) {
     }
 
     void *recv_buffer = malloc(RECV_BUFFER_SIZE);
+    if (!recv_buffer) {
+	fprintf(stderr, "Could not allocate receive buffer of %i bytes",
+		RECV_BUFFER_SIZE);
+	goto err_cleanup_pcap;
+    }
     while (!terminate_requested) {
 	if (terminate_requested) {
 	    break;
@@ -157,6 +162,8 @@ int main(int argc, char **argv) {
 	gettimeofday(&pcap_hdr.ts, NULL);
 	pcap_dump((unsigned char*) pcap_dumper, &pcap_hdr, p);
     }
+
+    free(recv_buffer);
 
 err_cleanup_pcap:
     if (pcap_dumper)
