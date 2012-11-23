@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
 		goto err_cleanup_pcap;
 	}
 
-	void *recv_buffer = malloc(RECV_BUFFER_SIZE);
+	char *recv_buffer = malloc(RECV_BUFFER_SIZE);
 	if (!recv_buffer) {
 		fprintf(stderr, "Could not allocate receive buffer of %i bytes",
 		        RECV_BUFFER_SIZE);
@@ -120,19 +120,19 @@ int main(int argc, char **argv) {
 		    recvfrom(tzsp_listener, recv_buffer, RECV_BUFFER_SIZE, 0,
 		             NULL, NULL);
 
-		void *p = recv_buffer;
+		char *p = recv_buffer;
 
 		if (readsz == -1) {
 			perror("recv()");
 			break;
 		}
 
-		void *end = recv_buffer + readsz;
+		char *end = recv_buffer + readsz;
 
 		if (p + sizeof(struct tzsp_header) > end)
 			break;
 
-		struct tzsp_header *hdr = recv_buffer;
+		struct tzsp_header *hdr = (struct tzsp_header *) recv_buffer;
 
 		p += sizeof(struct tzsp_header);
 
@@ -140,13 +140,13 @@ int main(int argc, char **argv) {
 		    hdr->type == TZSP_TYPE_RECEIVED_TAG_LIST)
 		{
 			while (p < end) {
-				struct tzsp_tag *tag = p;
+				struct tzsp_tag *tag = (struct tzsp_tag *) p;
 				if (tag->type == TZSP_TAG_END) {
-					p = ((char*) p) + 1;
+					p++;
 					break;
 				}
 				else if (tag->type == TZSP_TAG_PADDING) {
-					p = ((char*) p) + 1;
+					p++;
 				}
 				else {
 					p += tag->length;
@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
 			.len = readsz - (p - recv_buffer),
 		};
 		gettimeofday(&pcap_hdr.ts, NULL);
-		pcap_dump((unsigned char*) pcap_dumper, &pcap_hdr, p);
+		pcap_dump((unsigned char*) pcap_dumper, &pcap_hdr, (unsigned char *) p);
 	}
 
 	free(recv_buffer);
