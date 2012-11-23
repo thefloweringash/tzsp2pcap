@@ -1,2 +1,4 @@
+CFLAGS += -Wall -Wextra
+
 tzsp2pcap: tzsp2pcap.c
-	cc -o $@ $(LDFLAGS) -lpcap $<
+	cc -o $@ $(CFLAGS) $(LDFLAGS) -lpcap $<
