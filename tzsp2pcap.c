@@ -9,7 +9,6 @@
 
 // these should be made into command line options
 
-#define LISTEN_PORT 37008
 #define RECV_BUFFER_SIZE 65535
 #define DEST_FILENAME "-"
 
@@ -38,12 +37,13 @@ struct tzsp_tag {
 } __attribute__((packed));
 
 int terminate_requested = 0;
+static char flush_every_packet;
 
 void request_terminate_handler(int signum) {
 	terminate_requested = 1;
 }
 
-int setup_tzsp_listener() {
+int setup_tzsp_listener(uint16_t listen_port) {
 	int result;
 
 	int sockfd = socket(PF_INET6, SOCK_DGRAM, IPPROTO_UDP);
@@ -55,7 +55,7 @@ int setup_tzsp_listener() {
 	struct sockaddr_in6 listen_address = {
 		.sin6_len = sizeof(struct sockaddr_in6),
 		.sin6_family = AF_INET6,
-		.sin6_port = ntohs(LISTEN_PORT),
+		.sin6_port = ntohs(listen_port),
 		.sin6_flowinfo = 0,
 		.sin6_addr = in6addr_any,
 	};
@@ -84,12 +84,41 @@ void trap_signal(int signum) {
 		signal(signum, SIG_IGN);
 }
 
+void usage(const char *program) {
+	fprintf(stderr,
+	        "tzsp2pcap: listens on PORT and outputs to stdout\n"
+	        "Usage %s [-h] [-f] [-p PORT]\n"
+	        "\t-h\tDisplay this message\n"
+	        "\t-f\tFlush stdout after every packet\n"
+	        "\t-p PORT \tSpecify port to listen to\n",
+	        program);
+}
+
 int main(int argc, char **argv) {
+	uint16_t listen_port = 37008;
+
+	int ch;
+	while ((ch = getopt(argc, argv, "fp:")) != -1) {
+		switch (ch) {
+		case 'f':
+			flush_every_packet = 1;
+			break;
+
+		case 'p':
+			listen_port = atoi(optarg);
+			break;
+
+		default:
+		case 'h':
+			usage(argv[0]);
+			goto exit;
+		}
+	}
 	trap_signal(SIGINT);
 	trap_signal(SIGHUP);
 	trap_signal(SIGTERM);
 
-	int tzsp_listener = setup_tzsp_listener();
+	int tzsp_listener = setup_tzsp_listener(listen_port);
 	if (tzsp_listener == -1) {
 		fprintf(stderr, "Could not setup tzsp listener\n");
 		return -1;
@@ -161,6 +190,8 @@ int main(int argc, char **argv) {
 		};
 		gettimeofday(&pcap_hdr.ts, NULL);
 		pcap_dump((unsigned char*) pcap_dumper, &pcap_hdr, (unsigned char *) p);
+		if (flush_every_packet)
+			fflush(NULL);
 	}
 
 	free(recv_buffer);
