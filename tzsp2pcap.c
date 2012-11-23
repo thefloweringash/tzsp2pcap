@@ -1,6 +1,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -95,6 +96,8 @@ void usage(const char *program) {
 }
 
 int main(int argc, char **argv) {
+	int retval = 0;
+
 	uint16_t listen_port = 37008;
 
 	int ch;
@@ -109,6 +112,8 @@ int main(int argc, char **argv) {
 			break;
 
 		default:
+			retval = -1;
+
 		case 'h':
 			usage(argv[0]);
 			goto exit;
@@ -121,17 +126,20 @@ int main(int argc, char **argv) {
 	int tzsp_listener = setup_tzsp_listener(listen_port);
 	if (tzsp_listener == -1) {
 		fprintf(stderr, "Could not setup tzsp listener\n");
-		return -1;
+		retval = errno;
+		goto exit;
 	}
 
 	pcap_t *pcap = pcap_open_dead(DLT_EN10MB, RECV_BUFFER_SIZE);
 	if (!pcap) {
 		fprintf(stderr, "Could not init pcap\n");
+		retval = -1;
 		goto err_cleanup_tzsp;
 	}
 	pcap_dumper_t *pcap_dumper = pcap_dump_open(pcap, DEST_FILENAME);
 	if (!pcap_dumper) {
 		fprintf(stderr, "Could not open output file: %s\n", pcap_geterr(pcap));
+		retval = -1;
 		goto err_cleanup_pcap;
 	}
 
@@ -139,6 +147,7 @@ int main(int argc, char **argv) {
 	if (!recv_buffer) {
 		fprintf(stderr, "Could not allocate receive buffer of %i bytes",
 		        RECV_BUFFER_SIZE);
+		retval = -1;
 		goto err_cleanup_pcap;
 	}
 	while (!terminate_requested) {
@@ -208,5 +217,5 @@ err_cleanup_tzsp:
 		cleanup_tzsp_listener(tzsp_listener);
 
 exit:
-	return 0;
+	return retval;
 }
