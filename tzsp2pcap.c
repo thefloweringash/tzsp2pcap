@@ -1,9 +1,11 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <assert.h>
 #include <errno.h>
 
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 
 #include <pcap/pcap.h>
@@ -37,11 +39,19 @@ struct tzsp_tag {
 	char  data[1];
 } __attribute__((packed));
 
-int terminate_requested = 0;
+static int self_pipe_fds[2];
 static char flush_every_packet;
 
 void request_terminate_handler(int signum) {
-	terminate_requested = 1;
+	if (signal(signum, SIG_DFL) == SIG_IGN)
+		signal(signum, SIG_IGN);
+
+	fprintf(stderr, "Caught signal, exiting (once more to force)\n");
+
+	char data = 0;
+	if (write(self_pipe_fds[1], &data, sizeof(data)) == -1) {
+		perror("write");
+	}
 }
 
 int setup_tzsp_listener(uint16_t listen_port) {
@@ -85,6 +95,10 @@ void trap_signal(int signum) {
 		signal(signum, SIG_IGN);
 }
 
+static inline int max(int x, int y) {
+	return (x > y) ? x : y;
+}
+
 void usage(const char *program) {
 	fprintf(stderr,
 	        "tzsp2pcap: listens on PORT and outputs to stdout\n"
@@ -119,15 +133,22 @@ int main(int argc, char **argv) {
 			goto exit;
 		}
 	}
+
 	trap_signal(SIGINT);
 	trap_signal(SIGHUP);
 	trap_signal(SIGTERM);
+
+	if (pipe(self_pipe_fds) == -1) {
+		perror("Creating self-wake pipe\n");
+		retval = errno;
+		goto exit;
+	}
 
 	int tzsp_listener = setup_tzsp_listener(listen_port);
 	if (tzsp_listener == -1) {
 		fprintf(stderr, "Could not setup tzsp listener\n");
 		retval = errno;
-		goto exit;
+		goto err_cleanup_pipe;
 	}
 
 	pcap_t *pcap = pcap_open_dead(DLT_EN10MB, RECV_BUFFER_SIZE);
@@ -150,10 +171,25 @@ int main(int argc, char **argv) {
 		retval = -1;
 		goto err_cleanup_pcap;
 	}
-	while (!terminate_requested) {
-		if (terminate_requested) {
+	while (1) {
+		fd_set read_set;
+		FD_ZERO(&read_set);
+		FD_SET(tzsp_listener, &read_set);
+		FD_SET(self_pipe_fds[0], &read_set);
+		if (select(max(tzsp_listener, self_pipe_fds[0]) + 1,
+		           &read_set, NULL, NULL,
+		           NULL) == -1)
+		{
+			if (errno == EINTR) continue;
+			perror("select");
+		}
+
+		if (FD_ISSET(self_pipe_fds[0], &read_set)) {
 			break;
 		}
+
+		assert(FD_ISSET(tzsp_listener, &read_set));
+
 		ssize_t readsz =
 		    recvfrom(tzsp_listener, recv_buffer, RECV_BUFFER_SIZE, 0,
 		             NULL, NULL);
@@ -215,6 +251,10 @@ err_cleanup_pcap:
 err_cleanup_tzsp:
 	if (tzsp_listener != -1)
 		cleanup_tzsp_listener(tzsp_listener);
+
+err_cleanup_pipe:
+	close(self_pipe_fds[0]);
+	close(self_pipe_fds[1]);
 
 exit:
 	return retval;
