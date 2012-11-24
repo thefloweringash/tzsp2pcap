@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <errno.h>
+#include <signal.h>
 
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -63,8 +64,19 @@ int setup_tzsp_listener(uint16_t listen_port) {
 		goto err_exit;
 	}
 
+	int on = 0;
+	result = setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
+	                    (void*)&on, sizeof(on));
+	if (result == -1) {
+		perror("setsockopt()");
+		goto err_close;
+	}
+
 	struct sockaddr_in6 listen_address = {
+		#ifdef SIN6_LEN
 		.sin6_len = sizeof(struct sockaddr_in6),
+		#endif
+
 		.sin6_family = AF_INET6,
 		.sin6_port = ntohs(listen_port),
 		.sin6_flowinfo = 0,
