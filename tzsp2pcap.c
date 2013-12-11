@@ -305,11 +305,8 @@ next_packet:
 		    hdr->type == TZSP_TYPE_RECEIVED_TAG_LIST)
 		{
 			while (p < end) {
-				// some packets only have the type field
-				if (p + sizeof(uint8_t) > end) {
-					fprintf(stderr, "Malformed packet (truncated tag)\n");
-					goto next_packet;
-				}
+				// some packets only have the type field, which is
+				// guaranteed by (p < end).
 
 				struct tzsp_tag *tag = (struct tzsp_tag *) p;
 
@@ -330,7 +327,9 @@ next_packet:
 					p++;
 				}
 				else {
-					if (p + sizeof(struct tzsp_tag) > end) {
+					if (p + sizeof(struct tzsp_tag) > end ||
+					    p + sizeof(struct tzsp_tag) + tag->length > end)
+					{
 						fprintf(stderr, "Malformed packet (truncated tag)\n");
 						goto next_packet;
 					}
