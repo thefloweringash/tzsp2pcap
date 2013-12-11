@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>
+#include <string.h>
 
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -11,10 +12,11 @@
 
 #include <pcap/pcap.h>
 
-// these should be made into command line options
+#define ARRAYSZ(x) (sizeof(x)/sizeof(*x))
 
-#define RECV_BUFFER_SIZE 65535
-#define DEST_FILENAME "-"
+#define DEFAULT_RECV_BUFFER_SIZE 65535
+#define DEFAULT_LISTEN_PORT 37008
+#define DEFAULT_OUT_FILENAME "-"
 
 // constants
 
@@ -25,23 +27,36 @@
 #define TZSP_TYPE_KEEPALIVE 4
 #define TZSP_TYPE_PORT_OPENER 5
 
+const char *tzsp_type_names[] = {
+	[TZSP_TYPE_RECEIVED_TAG_LIST]   = "RECEIVED_TAG_LIST",
+	[TZSP_TYPE_PACKET_FOR_TRANSMIT] = "PACKET_FOR_TRANSMIT",
+	[TZSP_TYPE_RESERVED]            = "RESERVED",
+	[TZSP_TYPE_CONFIGURATION]       = "CONFIGURATION",
+	[TZSP_TYPE_KEEPALIVE]           = "KEEPALIVE",
+	[TZSP_TYPE_PORT_OPENER]         = "PORT_OPENER",
+};
+
 #define TZSP_TAG_END 1
 #define TZSP_TAG_PADDING 0
+
+const char *tzsp_tag_names[] = {
+	[TZSP_TAG_END]     = "END",
+	[TZSP_TAG_PADDING] = "PADDING",
+};
 
 struct tzsp_header {
 	uint8_t version;
 	uint8_t type;
-	uint16_t protocol;
+	uint16_t encap;
 } __attribute__((packed));
 
 struct tzsp_tag {
 	uint8_t type;
 	uint8_t length;
-	char  data[1];
+	char  data[];
 } __attribute__((packed));
 
 static int self_pipe_fds[2];
-static char flush_every_packet;
 
 void request_terminate_handler(int signum) {
 	if (signal(signum, SIG_DFL) == SIG_IGN)
@@ -107,27 +122,51 @@ void trap_signal(int signum) {
 		signal(signum, SIG_IGN);
 }
 
+static inline const char* name_tag(int tag,
+                                   const char *names[],
+                                   int names_len) {
+	if (tag >= 0 && tag < names_len) {
+		return names[tag];
+	}
+	else {
+		return "<UNKNOWN>";
+	}
+}
+
 static inline int max(int x, int y) {
 	return (x > y) ? x : y;
 }
 
 void usage(const char *program) {
 	fprintf(stderr,
-	        "tzsp2pcap: listens on PORT and outputs to stdout\n"
-	        "Usage %s [-h] [-f] [-p PORT]\n"
-	        "\t-h\tDisplay this message\n"
-	        "\t-f\tFlush stdout after every packet\n"
-	        "\t-p PORT \tSpecify port to listen to\n",
-	        program);
+	        "\n"
+	        "tzsp2pcap: receive tazmen sniffer protocol over udp and\n"
+	        "produce pcap formatted output\n"
+	        "\n"
+	        "Usage %s [-h] [-f] [-p PORT] [-o FILENAME] [-s SIZE]\n"
+	        "\t-h           Display this message\n"
+	        "\t-f           Flush output after every packet\n"
+	        "\t-p PORT      Specify port to listen on  (defaults to %u)\n"
+	        "\t-o FILENAME  Write output to FILENAME   (defaults to stdout)\n"
+	        "\t-s SIZE      Receive buffer size        (defaults to %u)\n"
+	        "\t-v           Verbose (repeat to increase up to -vv)\n",
+	        program,
+	        DEFAULT_LISTEN_PORT,
+	        DEFAULT_RECV_BUFFER_SIZE);
 }
 
 int main(int argc, char **argv) {
 	int retval = 0;
 
-	uint16_t listen_port = 37008;
+	int recv_buffer_size = DEFAULT_RECV_BUFFER_SIZE;
+	uint16_t listen_port = DEFAULT_LISTEN_PORT;
+	const char *out_filename = DEFAULT_OUT_FILENAME;
+	char out_filename_cleanup = 0;
+	char flush_every_packet = 0;
+	int verbose = 0;
 
 	int ch;
-	while ((ch = getopt(argc, argv, "fp:")) != -1) {
+	while ((ch = getopt(argc, argv, "fp:o:s:vh")) != -1) {
 		switch (ch) {
 		case 'f':
 			flush_every_packet = 1;
@@ -135,6 +174,19 @@ int main(int argc, char **argv) {
 
 		case 'p':
 			listen_port = atoi(optarg);
+			break;
+
+		case 'o':
+			out_filename = strdup(optarg);
+			out_filename_cleanup = 1;
+			break;
+
+		case 's':
+			recv_buffer_size = atoi(optarg);
+			break;
+
+		case 'v':
+			verbose++;
 			break;
 
 		default:
@@ -163,28 +215,35 @@ int main(int argc, char **argv) {
 		goto err_cleanup_pipe;
 	}
 
-	pcap_t *pcap = pcap_open_dead(DLT_EN10MB, RECV_BUFFER_SIZE);
+	pcap_t *pcap = pcap_open_dead(DLT_EN10MB, recv_buffer_size);
 	if (!pcap) {
 		fprintf(stderr, "Could not init pcap\n");
 		retval = -1;
 		goto err_cleanup_tzsp;
 	}
-	pcap_dumper_t *pcap_dumper = pcap_dump_open(pcap, DEST_FILENAME);
+	pcap_dumper_t *pcap_dumper = pcap_dump_open(pcap, out_filename);
 	if (!pcap_dumper) {
 		fprintf(stderr, "Could not open output file: %s\n", pcap_geterr(pcap));
 		retval = -1;
 		goto err_cleanup_pcap;
 	}
 
-	char *recv_buffer = malloc(RECV_BUFFER_SIZE);
+	char *recv_buffer = malloc(recv_buffer_size);
 	if (!recv_buffer) {
-		fprintf(stderr, "Could not allocate receive buffer of %i bytes",
-		        RECV_BUFFER_SIZE);
+		fprintf(stderr, "Could not allocate receive buffer of %i bytes\n",
+		        recv_buffer_size);
 		retval = -1;
 		goto err_cleanup_pcap;
 	}
+
 	while (1) {
 		fd_set read_set;
+
+next_packet:
+		if (verbose >= 2) {
+			fprintf(stderr, "loop_start\n");
+		}
+
 		FD_ZERO(&read_set);
 		FD_SET(tzsp_listener, &read_set);
 		FD_SET(self_pipe_fds[0], &read_set);
@@ -203,8 +262,14 @@ int main(int argc, char **argv) {
 		assert(FD_ISSET(tzsp_listener, &read_set));
 
 		ssize_t readsz =
-		    recvfrom(tzsp_listener, recv_buffer, RECV_BUFFER_SIZE, 0,
+		    recvfrom(tzsp_listener, recv_buffer, recv_buffer_size, 0,
 		             NULL, NULL);
+
+		if (verbose >= 2) {
+			fprintf(stderr,
+			        "read 0x%.4zx bytes into buffer of size 0x%.4x\n",
+			        readsz, recv_buffer_size);
+		}
 
 		char *p = recv_buffer;
 
@@ -215,19 +280,49 @@ int main(int argc, char **argv) {
 
 		char *end = recv_buffer + readsz;
 
-		if (p + sizeof(struct tzsp_header) > end)
-			break;
+		if (p + sizeof(struct tzsp_header) > end) {
+			fprintf(stderr, "Malformed packet (truncated header)\n");
+			goto next_packet;
+		}
 
 		struct tzsp_header *hdr = (struct tzsp_header *) recv_buffer;
 
 		p += sizeof(struct tzsp_header);
 
+		if (verbose) {
+			fprintf(stderr,
+			        "header { version = %u, type = %s(%u), encap = 0x%.4x }\n",
+			        hdr->version,
+			        name_tag(hdr->type,
+			                 tzsp_type_names, ARRAYSZ(tzsp_type_names)),
+			        hdr->type,
+			        ntohs(hdr->encap));
+		}
+
+		char got_end_tag = 0;
+
 		if (hdr->version == 1 &&
 		    hdr->type == TZSP_TYPE_RECEIVED_TAG_LIST)
 		{
 			while (p < end) {
+				// some packets only have the type field
+				if (p + sizeof(uint8_t) > end) {
+					fprintf(stderr, "Malformed packet (truncated tag)\n");
+					goto next_packet;
+				}
+
 				struct tzsp_tag *tag = (struct tzsp_tag *) p;
+
+				if (verbose) {
+					fprintf(stderr,
+					        "\ttag { type = %s(%u) }\n",
+					        name_tag(tag->type,
+					                 tzsp_tag_names, ARRAYSZ(tzsp_tag_names)),
+					        tag->type);
+				}
+
 				if (tag->type == TZSP_TAG_END) {
+					got_end_tag = 1;
 					p++;
 					break;
 				}
@@ -235,9 +330,29 @@ int main(int argc, char **argv) {
 					p++;
 				}
 				else {
-					p += tag->length;
+					if (p + sizeof(struct tzsp_tag) > end) {
+						fprintf(stderr, "Malformed packet (truncated tag)\n");
+						goto next_packet;
+					}
+					p += sizeof(struct tzsp_tag) + tag->length;
 				}
 			}
+		}
+		else {
+			fprintf(stderr, "Packet format not understood\n");
+			goto next_packet;
+		}
+
+		if (!got_end_tag) {
+			fprintf(stderr, "Packet truncated (no END tag)\n");
+			goto next_packet;
+		}
+
+		if (verbose) {
+			fprintf(stderr,
+			        "\tpacket data beings at offset 0x%.4lx, length 0x%.4lx\n",
+			        (p - recv_buffer),
+			        readsz - (p - recv_buffer));
 		}
 
 		// packet remains starting at p
@@ -269,5 +384,8 @@ err_cleanup_pipe:
 	close(self_pipe_fds[1]);
 
 exit:
+	if (out_filename_cleanup)
+		free((void*) out_filename);
+
 	return retval;
 }
