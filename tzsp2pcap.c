@@ -143,13 +143,13 @@ void usage(const char *program) {
 	        "tzsp2pcap: receive tazmen sniffer protocol over udp and\n"
 	        "produce pcap formatted output\n"
 	        "\n"
-	        "Usage %s [-h] [-f] [-p PORT] [-o FILENAME] [-s SIZE]\n"
+	        "Usage %s [-h] [-v] [-f] [-p PORT] [-o FILENAME] [-s SIZE]\n"
 	        "\t-h           Display this message\n"
+	        "\t-v           Verbose (repeat to increase up to -vv)\n"
 	        "\t-f           Flush output after every packet\n"
 	        "\t-p PORT      Specify port to listen on  (defaults to %u)\n"
 	        "\t-o FILENAME  Write output to FILENAME   (defaults to stdout)\n"
-	        "\t-s SIZE      Receive buffer size        (defaults to %u)\n"
-	        "\t-v           Verbose (repeat to increase up to -vv)\n",
+	        "\t-s SIZE      Receive buffer size        (defaults to %u)\n",
 	        program,
 	        DEFAULT_LISTEN_PORT,
 	        DEFAULT_RECV_BUFFER_SIZE);
