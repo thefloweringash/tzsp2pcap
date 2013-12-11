@@ -227,6 +227,8 @@ int main(int argc, char **argv) {
 		goto err_cleanup_pcap;
 	}
 
+	FILE *pcap_dumper_file = pcap_dump_file(pcap_dumper);
+
 	char *recv_buffer = malloc(recv_buffer_size);
 	if (!recv_buffer) {
 		fprintf(stderr, "Could not allocate receive buffer of %i bytes\n",
@@ -360,8 +362,19 @@ next_packet:
 		};
 		gettimeofday(&pcap_hdr.ts, NULL);
 		pcap_dump((unsigned char*) pcap_dumper, &pcap_hdr, (unsigned char *) p);
-		if (flush_every_packet)
-			fflush(NULL);
+
+		// since pcap_dump doesn't report errors directly, we have
+		// to approximate by checking its underlying file.
+		if (ferror(pcap_dumper_file)) {
+			fprintf(stderr, "error writing via pcap_dump\n");
+			break;
+		}
+		if (flush_every_packet) {
+			if (fflush(pcap_dumper_file) != 0) {
+				perror("fflush");
+				break;
+			}
+		}
 	}
 
 	free(recv_buffer);
