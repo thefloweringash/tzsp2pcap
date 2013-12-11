@@ -27,7 +27,7 @@
 #define TZSP_TYPE_KEEPALIVE 4
 #define TZSP_TYPE_PORT_OPENER 5
 
-const char *tzsp_type_names[] = {
+static const char * const tzsp_type_names[] = {
 	[TZSP_TYPE_RECEIVED_TAG_LIST]   = "RECEIVED_TAG_LIST",
 	[TZSP_TYPE_PACKET_FOR_TRANSMIT] = "PACKET_FOR_TRANSMIT",
 	[TZSP_TYPE_RESERVED]            = "RESERVED",
@@ -39,7 +39,7 @@ const char *tzsp_type_names[] = {
 #define TZSP_TAG_END 1
 #define TZSP_TAG_PADDING 0
 
-const char *tzsp_tag_names[] = {
+static const char * const tzsp_tag_names[] = {
 	[TZSP_TAG_END]     = "END",
 	[TZSP_TAG_PADDING] = "PADDING",
 };
@@ -58,9 +58,8 @@ struct tzsp_tag {
 
 static int self_pipe_fds[2];
 
-void request_terminate_handler(int signum) {
-	if (signal(signum, SIG_DFL) == SIG_IGN)
-		signal(signum, SIG_IGN);
+static void request_terminate_handler(int signum) {
+	signal(signum, SIG_DFL);
 
 	fprintf(stderr, "Caught signal, exiting (once more to force)\n");
 
@@ -70,7 +69,7 @@ void request_terminate_handler(int signum) {
 	}
 }
 
-int setup_tzsp_listener(uint16_t listen_port) {
+static int setup_tzsp_listener(uint16_t listen_port) {
 	int result;
 
 	int sockfd = socket(PF_INET6, SOCK_DGRAM, IPPROTO_UDP);
@@ -113,17 +112,17 @@ err_exit:
 	return -1;
 }
 
-void cleanup_tzsp_listener(int socket) {
+static void cleanup_tzsp_listener(int socket) {
 	close(socket);
 }
 
-void trap_signal(int signum) {
+static void trap_signal(int signum) {
 	if (signal(signum, request_terminate_handler) == SIG_IGN)
 		signal(signum, SIG_IGN);
 }
 
 static inline const char* name_tag(int tag,
-                                   const char *names[],
+                                   const char * const names[],
                                    int names_len) {
 	if (tag >= 0 && tag < names_len) {
 		return names[tag];
@@ -137,7 +136,7 @@ static inline int max(int x, int y) {
 	return (x > y) ? x : y;
 }
 
-void usage(const char *program) {
+static void usage(const char *program) {
 	fprintf(stderr,
 	        "\n"
 	        "tzsp2pcap: receive tazmen sniffer protocol over udp and\n"
@@ -349,7 +348,7 @@ next_packet:
 
 		if (verbose) {
 			fprintf(stderr,
-			        "\tpacket data beings at offset 0x%.4lx, length 0x%.4lx\n",
+			        "\tpacket data begins at offset 0x%.4lx, length 0x%.4lx\n",
 			        (p - recv_buffer),
 			        readsz - (p - recv_buffer));
 		}
