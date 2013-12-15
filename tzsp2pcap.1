@@ -1,0 +1,91 @@
+.Dd December 16, 2013
+.Dt tzsp2pcap 1
+.Os
+.Sh NAME
+.Nm tzsp2pcap
+.Nd Live TaZmen Sniffer Protocol (TZSP) to pcap converter
+.Sh SYNOPSIS
+.Nm
+.Op Fl v
+.Op Fl f
+.Op Fl p Ar port
+.Op Fl o Ar filename
+.Op Fl s Ar size
+.Nm
+.Fl h
+.Sh DESCRIPTION
+The
+.Nm
+utility translates TZSP packets received from a network device into
+.Xr pcap 3
+format.
+.Pp
+TZSP is an encapsulation of captured network traffic, transported over
+UDP, with additional information tagged onto each packet. This utility
+discards the tags and outputs the contents of the captured traffic in
+a standard format.
+.Pp
+By default
+.Nm
+listens on port 37008, and outputs to standard output.
+.Pp
+.Nm
+understands the following options:
+.Bl -tag -width indent
+.It Fl h
+Displays a brief usage summary and exits.
+.It Fl v
+Increases output verbosity. Passing this option twice
+.Pq Fl vv
+further increases verbosity.
+.It Fl f
+Flush output after every incoming packet. Increases the responsiveness
+when interactively viewing the results.
+.It Fl p Ar port
+Listen on
+.Ar port
+for incoming TZSP packets. The default port is 37008.
+.It Fl o Ar filename
+Write output to
+.Ar filename
+instead of standard output.
+.It Fl s Ar size
+Use a buffer of
+.Ar size
+bytes to call
+.Xr recvfrom 2 .
+The default buffer size should be sufficient for most uses.
+.Pp
+This buffer includes the TZSP encapsulation; the size of the resulting
+packet will be smaller. Note that the tags in a TZSP packet can take a
+variable number of bytes.
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh EXAMPLES
+Display live capture in
+.Xr wireshark 1
+.Dl $ tzsp2pcap -f | wireshark -k -i -
+.Pp
+Display a decoded live capture with
+.Xr tcpdump 1
+while saving to disk. May not work on all platforms, see
+.Sx CAVEATS Ns .
+.Dl $ tzsp2pcap -f | tee capture.pcap | tcpdump -r -
+.Pp
+Save the first 2 kibibytes of each packet to disk. Resulting packet
+data may be smaller, see documentation for
+.Fl s Ns .
+.Dl $ tzsp2pcap -s 2048 -o capture.pcap
+.Sh AUTHORS
+.An Andrew Childs Aq Mt lorne@cons.org.nz
+.An Chris Andreae Aq Mt chris@neko.net.nz
+.Sh CAVEATS
+.Xr tcpdump 1
+on OS X 10.9
+.Dq Mavericks
+(and possibly other versions) is unable to
+read from standard input.
+.Sh SECURITY CONSIDERATIONS
+.Nm
+requires no special privileges and should not be run as root.
