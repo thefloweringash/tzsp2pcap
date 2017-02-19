@@ -1,7 +1,7 @@
 # tzsp2pcap
 
 ## Introduction
-It is a simple utility to listen for [[http://en.wikipedia.org/wiki/TZSP][TaZmen Sniffer Protocol]] (TZSP)
+It is a simple utility to listen for [TaZmen Sniffer Protocol](http://en.wikipedia.org/wiki/TZSP) (TZSP)
 packets and output the contents on stdout in pcap format. It has only
 been lightly tested with Mikrotik RouterOS products, and may need
 alterations to work with other devices.
