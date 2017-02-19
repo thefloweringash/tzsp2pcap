@@ -1,12 +1,21 @@
 # Configurable variables
-CFLAGS = -Wall -Wextra -pedantic -O2
+TARGET = tzsp2pcap
+CFLAGS += -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pedantic -O2 -g
+LIBS = -lpcap
+DESTDIR ?= /usr/local
 
 tzsp2pcap: tzsp2pcap.c
-	cc -std=c99 -o $@ $(CFLAGS) $(LDFLAGS) -lpcap $<
+	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $< $(LIBS)
 
-.PHONY: clean all
+.PHONY: clean all install uninstall
 
-all: tzsp2pcap
+all: $(TARGET)
+
+install: $(TARGET)
+	install -s -m 755 $< $(DESTDIR)/bin
+
+uninstall:
+	rm -f $(DESTDIR)/bin/$(TARGET)
 
 clean:
-	rm -f tzsp2pcap
+	rm -f $(TARGET)
