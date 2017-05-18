@@ -370,8 +370,8 @@ next_packet:
 			break;
 		}
 		if (flush_every_packet) {
-			if (fflush(pcap_dumper_file) != 0) {
-				perror("fflush");
+			if (pcap_dump_flush(pcap_dumper) != 0) {
+				fprintf(stderr, "error flushing via pcap_dump_flush\n");
 				break;
 			}
 		}
