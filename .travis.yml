@@ -1,7 +1,7 @@
 language: c
 
 dist: trusty
-sudo: false
+sudo: true
 
 os:
   - linux
@@ -11,9 +11,34 @@ compiler:
   - clang
   - gcc
 
+env:
+  - PLATFORM=native
+
+matrix:
+  include:
+    - os: linux
+      compiler: gcc
+      env: PLATFORM=mingw
+
 addons:
   apt:
     packages:
       libpcap-dev
 
-script: make
+before_script:
+  - |
+      if [ "$PLATFORM" = "mingw" ]; then
+        sudo apt-get install gcc-mingw-w64 unzip
+        #curl -vLO https://www.winpcap.org/install/bin/WpdPack_4_1_2.zip
+        # ... get files out of archive, put in place, statically link
+        # except I need winsock support before this makes any sense
+      fi
+
+script:
+  - if [ "$PLATFORM" = "native" ]; then make; fi
+  - |
+      if [ "$PLATFORM" = "mingw" ]; then
+        make CC=/usr/bin/i686-w64-mingw32-gcc
+      fi
+
+
