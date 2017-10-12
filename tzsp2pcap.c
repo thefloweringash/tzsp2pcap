@@ -1,3 +1,5 @@
+#include <sys/types.h>
+#include <sys/param.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -12,6 +14,8 @@
 #include <netinet/in.h>
 
 #include <linux/limits.h> // max MAX_PATH
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #include <pcap/pcap.h>
 
@@ -76,6 +80,7 @@ struct my_pcap_t {
     time_t gflag_time;
     int cflag;
     int cflag_count;
+    char *zflag;
 
 };
 
@@ -190,6 +195,39 @@ static const char *get_filename(struct my_pcap_t *my_pcap){
 
 }
 
+static void
+after_logrotate(struct my_pcap_t *my_pcap)
+{
+    pid_t child;
+
+    child = vfork();
+    if (child == -1) {
+        perror("after_logrotate: fork failed");
+        return;
+    }
+    if (child != 0) {
+        /* Parent process. */
+        return;
+    }
+
+    /*
+     * Child process.
+     * Set to lowest priority so that this doesn't disturb the capture.
+     */
+#ifdef NZERO
+    setpriority(PRIO_PROCESS, 0, NZERO - 1);
+#else
+    setpriority(PRIO_PROCESS, 0, 19);
+#endif
+    if (execlp(my_pcap->zflag, my_pcap->zflag, my_pcap->filename, (char *)NULL) == -1)
+        fprintf(stderr,
+            "after_logrotate: execlp(%s, %s) failed: %s\n",
+            my_pcap->zflag,
+            my_pcap->filename,
+            pcap_strerror(errno));
+    _exit(1);
+}
+
 static int make_dumper(struct my_pcap_t *my_pcap, int verbose){
 
     const char *new_filename = get_filename(my_pcap);
@@ -213,6 +251,14 @@ static int make_dumper(struct my_pcap_t *my_pcap, int verbose){
     else {
         pcap_dump_close(my_pcap->dumper);
         my_pcap->fp = NULL;
+
+        if (my_pcap->zflag != NULL) {
+            if (verbose >= 1) {
+                fprintf(stderr, "Running post-rotate command: %s\n", my_pcap->zflag);
+            }
+            after_logrotate(my_pcap);
+        }
+
         my_pcap->dumper = pcap_dump_open(my_pcap->pcap, new_filename);
         if (!my_pcap->dumper) {
             fprintf(stderr, "Could not open output file: %s\n", pcap_geterr(my_pcap->pcap));
@@ -290,7 +336,7 @@ static void usage(const char *program) {
 	        "tzsp2pcap: receive tazmen sniffer protocol over udp and\n"
 	        "produce pcap formatted output\n"
 	        "\n"
-	        "Usage %s [-h] [-v] [-f] [-p PORT] [-o FILENAME] [-s SIZE] [-G SECONDS] [-C SIZE]\n"
+	        "Usage %s [-h] [-v] [-f] [-p PORT] [-o FILENAME] [-s SIZE] [-G SECONDS] [-C SIZE] [-z CMD]\n"
 	        "\t-h           Display this message\n"
 	        "\t-v           Verbose (repeat to increase up to -vv)\n"
 	        "\t-f           Flush output after every packet\n"
@@ -298,7 +344,8 @@ static void usage(const char *program) {
 	        "\t-o FILENAME  Write output to FILENAME   (defaults to stdout)\n"
 	        "\t-s SIZE      Receive buffer size        (defaults to %u)\n"
             "\t-G SECONDS   Rotate file every n seconds\n"
-            "\t-C FILESIZE  Rotate file when FILESIZE is reached\n",
+            "\t-C FILESIZE  Rotate file when FILESIZE is reached\n"
+            "\t-z CMD       Post-rotate command to execute\n",
 	        program,
 	        DEFAULT_LISTEN_PORT,
 	        DEFAULT_RECV_BUFFER_SIZE);
@@ -317,9 +364,10 @@ int main(int argc, char **argv) {
     time_t gflag_time = 0; // for time
     int cflag = 0;
     int cflag_count = 0; // number of files
+    char *zflag = NULL;
 
 	int ch;
-	while ((ch = getopt(argc, argv, "fp:o:s:C:G:vh")) != -1) {
+	while ((ch = getopt(argc, argv, "fp:o:s:C:G:z:vh")) != -1) {
 		switch (ch) {
 		case 'f':
 			flush_every_packet = 1;
@@ -364,6 +412,10 @@ int main(int argc, char **argv) {
                 retval = -1;
                 goto exit;
             }
+            break;
+
+        case 'z':
+            zflag = strdup(optarg);
             break;
 
 		default:
@@ -423,6 +475,7 @@ int main(int argc, char **argv) {
     my_pcap.gflag_time = gflag_time;
     my_pcap.cflag = cflag;
     my_pcap.cflag_count = cflag_count;
+    my_pcap.zflag = zflag;
 
     if (make_dumper(&my_pcap, verbose) == -1){
         retval = -1;
@@ -616,6 +669,8 @@ exit:
 		free((void*) out_filename);
     if (my_pcap.filename != NULL)
         free((void*) my_pcap.filename);
+    if (my_pcap.zflag != NULL)
+        free((void*) my_pcap.zflag);
 
 	return retval;
 }
