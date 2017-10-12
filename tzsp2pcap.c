@@ -245,7 +245,6 @@ static int check_dumper(struct my_pcap_t *my_pcap, int verbose){
          */
         long size = pcap_dump_ftell(my_pcap->dumper);
 #endif
-        fprintf(stderr, "Current size: %lu\n", size);
         if (size > my_pcap->cflag) {
             ++my_pcap->cflag_count;
             return make_dumper(my_pcap, verbose);
@@ -615,6 +614,8 @@ err_cleanup_pipe:
 exit:
 	if (out_filename_cleanup)
 		free((void*) out_filename);
+    if (my_pcap.filename != NULL)
+        free((void*) my_pcap.filename);
 
 	return retval;
 }

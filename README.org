@@ -8,3 +8,6 @@ alterations to work with other devices.
 
 * Example usage
 : tzsp2pcap -f | wireshark -k -i -
+: tzsp2pcap -o "file.pcap" -C 1000000 # rotate file every 1MB (file.pcap.1, file.pcap.2, etc)
+: tzsp2pcap -o "file_%s.pcap" -G 10 # create new file every 10 seconds (file_UNIXTIMESTAMP.pcap)
+
