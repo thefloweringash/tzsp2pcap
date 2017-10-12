@@ -5,10 +5,13 @@
 #include <errno.h>
 #include <signal.h>
 #include <string.h>
+#include <time.h>
 
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <netinet/in.h>
+
+#include <linux/limits.h> // max MAX_PATH
 
 #include <pcap/pcap.h>
 
@@ -55,6 +58,26 @@ struct tzsp_tag {
 	uint8_t length;
 	char  data[];
 } __attribute__((packed));
+
+/**
+ * We pass this struct around
+ */
+struct my_pcap_t {
+
+    pcap_t *pcap;
+
+    const char *orig_filename;    // original filename
+    const char *filename;         // current filename
+    FILE *fp;               // file pointer 
+
+    pcap_dumper_t *dumper;  // pcap dumper
+
+    int gflag;
+    time_t gflag_time;
+    int cflag;
+    int cflag_count;
+
+};
 
 static int self_pipe_fds[2];
 
@@ -121,6 +144,132 @@ static void trap_signal(int signum) {
 		signal(signum, SIG_IGN);
 }
 
+static const char *get_filename(struct my_pcap_t *my_pcap){
+    if (strcmp(my_pcap->orig_filename, "-") == 0) {
+        return strdup(my_pcap->orig_filename);
+    }
+
+    const char *filename = malloc(PATH_MAX + 1);
+
+    if (filename == NULL)
+        perror("get_filename: malloc");
+
+    /**
+     * We use strftime only for gflag
+     */
+    if (my_pcap->gflag > 0) {
+
+        struct tm *local_tm;
+
+        /* Convert gflag_time to a usable format */
+        if ((local_tm = localtime(&my_pcap->gflag_time)) == NULL) {
+            perror("localtime");
+            // fallback to original file
+            snprintf((char *)filename, PATH_MAX +1, "%s", my_pcap->orig_filename);
+        }
+        else {
+            /* There's no good way to detect an error in strftime since a return
+             * value of 0 isn't necessarily failure.
+             */
+            strftime((char *)filename, PATH_MAX, my_pcap->orig_filename, local_tm);
+        }
+    }
+    else {
+        if (my_pcap->cflag > 0 && my_pcap->cflag_count > 0){
+            if (snprintf((char *)filename, PATH_MAX + 1, "%s.%d", my_pcap->orig_filename, my_pcap->cflag_count) > PATH_MAX){
+                // back to old file
+                fprintf(stderr, "Warning: Filename is too long: > %d\n", PATH_MAX);
+                snprintf((char *)filename, PATH_MAX +1, "%s", my_pcap->orig_filename);
+            }
+        }
+        else {
+            snprintf((char *)filename, PATH_MAX + 1, "%s", my_pcap->orig_filename);
+        }
+    }
+    return filename;
+
+}
+
+static int make_dumper(struct my_pcap_t *my_pcap, int verbose){
+
+    const char *new_filename = get_filename(my_pcap);
+
+    if (new_filename == NULL) {
+        fprintf(stderr, "Could not get filename\n");
+        return -1;
+    }
+
+    if (verbose >= 1){
+        fprintf(stderr, "Creating new dump file: %s\n", new_filename);
+    }
+
+    if (my_pcap->dumper == NULL) {
+        my_pcap->dumper = pcap_dump_open(my_pcap->pcap, new_filename);
+        if (!my_pcap->dumper) {
+            fprintf(stderr, "Could not open output file: %s\n", pcap_geterr(my_pcap->pcap));
+            return -1;
+        }
+    }
+    else {
+        pcap_dump_close(my_pcap->dumper);
+        my_pcap->fp = NULL;
+        my_pcap->dumper = pcap_dump_open(my_pcap->pcap, new_filename);
+        if (!my_pcap->dumper) {
+            fprintf(stderr, "Could not open output file: %s\n", pcap_geterr(my_pcap->pcap));
+            return -1;
+        }
+    }
+    if (my_pcap->fp == NULL) {
+        my_pcap->fp = pcap_dump_file(my_pcap->dumper);
+    }
+
+    if (my_pcap->filename != NULL){
+        free((void *)my_pcap->filename);
+    }
+    my_pcap->filename = new_filename;
+
+    return 0;
+}
+
+static int check_dumper(struct my_pcap_t *my_pcap, int verbose){
+
+    if (my_pcap->cflag > 0) {
+#ifdef HAVE_PCAP_FTELL64
+        int64_t size = pcap_dump_ftell64(my_pcap->dumper);
+#else
+        /*
+         * XXX - this only handles a Cflag value > 2^31-1 on
+         * LP64 platforms; to handle ILP32 (32-bit UN*X and
+         * Windows) or LLP64 (64-bit Windows) would require
+         * a version of libpcap with pcap_dump_ftell64().
+         */
+        long size = pcap_dump_ftell(my_pcap->dumper);
+#endif
+        fprintf(stderr, "Current size: %lu\n", size);
+        if (size > my_pcap->cflag) {
+            ++my_pcap->cflag_count;
+            return make_dumper(my_pcap, verbose);
+        }
+    }
+
+    else if(my_pcap->gflag > 0){
+        /* Check if it is time to rotate */
+        time_t t;
+
+        /* Get the current time */
+        if ((t = time(NULL)) == (time_t)-1) {
+            perror("Can't get current_time");
+            return errno;
+        }
+        if (t - my_pcap->gflag_time >= my_pcap->gflag){
+            my_pcap->gflag_time = t;
+            return make_dumper(my_pcap, verbose);
+        }
+    }
+
+    return 0;
+}
+
 static inline const char* name_tag(int tag,
                                    const char * const names[],
                                    int names_len) {
@@ -142,13 +291,15 @@ static void usage(const char *program) {
 	        "tzsp2pcap: receive tazmen sniffer protocol over udp and\n"
 	        "produce pcap formatted output\n"
 	        "\n"
-	        "Usage %s [-h] [-v] [-f] [-p PORT] [-o FILENAME] [-s SIZE]\n"
+	        "Usage %s [-h] [-v] [-f] [-p PORT] [-o FILENAME] [-s SIZE] [-G SECONDS] [-C SIZE]\n"
 	        "\t-h           Display this message\n"
 	        "\t-v           Verbose (repeat to increase up to -vv)\n"
 	        "\t-f           Flush output after every packet\n"
 	        "\t-p PORT      Specify port to listen on  (defaults to %u)\n"
 	        "\t-o FILENAME  Write output to FILENAME   (defaults to stdout)\n"
-	        "\t-s SIZE      Receive buffer size        (defaults to %u)\n",
+	        "\t-s SIZE      Receive buffer size        (defaults to %u)\n"
+            "\t-G SECONDS   Rotate file every n seconds\n"
+            "\t-C FILESIZE  Rotate file when FILESIZE is reached\n",
 	        program,
 	        DEFAULT_LISTEN_PORT,
 	        DEFAULT_RECV_BUFFER_SIZE);
@@ -163,9 +314,13 @@ int main(int argc, char **argv) {
 	char out_filename_cleanup = 0;
 	char flush_every_packet = 0;
 	int verbose = 0;
+    int gflag = 0;
+    time_t gflag_time = 0; // for time
+    int cflag = 0;
+    int cflag_count = 0; // number of files
 
 	int ch;
-	while ((ch = getopt(argc, argv, "fp:o:s:vh")) != -1) {
+	while ((ch = getopt(argc, argv, "fp:o:s:C:G:vh")) != -1) {
 		switch (ch) {
 		case 'f':
 			flush_every_packet = 1;
@@ -188,6 +343,30 @@ int main(int argc, char **argv) {
 			verbose++;
 			break;
 
+        case 'G':
+            gflag = atoi(optarg);
+            if (gflag <= 0) {
+                fprintf(stderr, "Invalid -G seconds provided\n");
+                retval = -1;
+                goto exit;
+            }
+            /* Grab the current time for rotation use. */
+            if ((gflag_time = time(NULL)) == (time_t)-1) {
+                perror("Cannot get current time");
+                retval = errno;
+                goto exit;
+            }
+            break;
+
+        case 'C':
+            cflag = atoi(optarg);
+            if (cflag <= 0) {
+                fprintf(stderr, "Invalid -C filesize provided\n");
+                retval = -1;
+                goto exit;
+            }
+            break;
+
 		default:
 			retval = -1;
 
@@ -196,6 +375,16 @@ int main(int argc, char **argv) {
 			goto exit;
 		}
 	}
+
+    /**
+     * Cannot have both -C and -G provided
+     */
+    if (cflag > 0 && gflag > 0) {
+        fprintf(stderr, "Cannot use both -C and -G\n");
+        retval = -1;
+        goto exit;
+    }
+
 
 	trap_signal(SIGINT);
 	trap_signal(SIGHUP);
@@ -220,14 +409,29 @@ int main(int argc, char **argv) {
 		retval = -1;
 		goto err_cleanup_tzsp;
 	}
-	pcap_dumper_t *pcap_dumper = pcap_dump_open(pcap, out_filename);
-	if (!pcap_dumper) {
-		fprintf(stderr, "Could not open output file: %s\n", pcap_geterr(pcap));
-		retval = -1;
-		goto err_cleanup_pcap;
-	}
 
-	FILE *pcap_dumper_file = pcap_dump_file(pcap_dumper);
+    struct my_pcap_t my_pcap;
+    FILE *pcap_dumper_file = NULL;
+    pcap_dumper_t *pcap_dumper = NULL;
+
+    // copy everything to our structure
+    my_pcap.pcap = pcap;
+    my_pcap.orig_filename = out_filename;
+    my_pcap.filename = NULL;
+    my_pcap.fp = pcap_dumper_file;
+    my_pcap.dumper = pcap_dumper;
+    my_pcap.gflag = gflag;
+    my_pcap.gflag_time = gflag_time;
+    my_pcap.cflag = cflag;
+    my_pcap.cflag_count = cflag_count;
+
+    if (make_dumper(&my_pcap, verbose) == -1){
+        retval = -1;
+        goto err_cleanup_pcap;
+    }
+
+    pcap_dumper_file = my_pcap.fp;
+    pcap_dumper = my_pcap.dumper;
 
 	char *recv_buffer = malloc(recv_buffer_size);
 	if (!recv_buffer) {
@@ -244,6 +448,10 @@ next_packet:
 		if (verbose >= 2) {
 			fprintf(stderr, "loop_start\n");
 		}
+
+        // copy again from our structure
+        pcap_dumper_file = my_pcap.fp;
+        pcap_dumper = my_pcap.dumper;        
 
 		FD_ZERO(&read_set);
 		FD_SET(tzsp_listener, &read_set);
@@ -375,6 +583,16 @@ next_packet:
 				break;
 			}
 		}
+
+        /**
+         * Check if -G or -C was provided and if out_filename is not stderr
+         */
+        if ((gflag > 0 || cflag > 0) && strcmp(out_filename, "-") != 0) {
+            if (check_dumper(&my_pcap, verbose) != 0){
+                retval = -1;
+                goto err_cleanup_pcap;
+            }
+        }
 	}
 
 	free(recv_buffer);
