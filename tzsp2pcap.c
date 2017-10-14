@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <sys/param.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -13,11 +14,13 @@
 #include <sys/select.h>
 #include <netinet/in.h>
 
-#include <linux/limits.h> // max MAX_PATH
+/*#include <linux/limits.h> on linux you could include this */
 #include <sys/time.h>
 #include <sys/resource.h>
 
 #include <pcap/pcap.h>
+
+#define MAX_PATH 1024
 
 #define ARRAYSZ(x) (sizeof(x)/sizeof(*x))
 
@@ -149,6 +152,13 @@ static void trap_signal(int signum) {
 		signal(signum, SIG_IGN);
 }
 
+void catch_child(int sig_num) {
+    /* when we get here, we know there's a zombie child waiting */
+    int child_status;
+
+    wait(&child_status);
+}
+
 static const char *get_filename(struct my_pcap_t *my_pcap){
     if (strcmp(my_pcap->orig_filename, "-") == 0) {
         return strdup(my_pcap->orig_filename);
@@ -200,7 +210,7 @@ after_logrotate(struct my_pcap_t *my_pcap)
 {
     pid_t child;
 
-    child = vfork();
+    child = fork();
     if (child == -1) {
         perror("after_logrotate: fork failed");
         return;
@@ -225,7 +235,7 @@ after_logrotate(struct my_pcap_t *my_pcap)
             my_pcap->zflag,
             my_pcap->filename,
             pcap_strerror(errno));
-    _exit(1);
+    exit(1);
 }
 
 static int make_dumper(struct my_pcap_t *my_pcap, int verbose){
@@ -440,6 +450,7 @@ int main(int argc, char **argv) {
 	trap_signal(SIGINT);
 	trap_signal(SIGHUP);
 	trap_signal(SIGTERM);
+    signal(SIGCHLD, catch_child);
 
 	if (pipe(self_pipe_fds) == -1) {
 		perror("Creating self-wake pipe\n");
