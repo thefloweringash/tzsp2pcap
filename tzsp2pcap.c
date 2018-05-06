@@ -602,8 +602,15 @@ next_packet:
 
 		char got_end_tag = 0;
 
+		// We should only have to deal with packets of type "Received"
+		// here, since we are sinking packets. However, some sniffers
+		// send packets as "Transmit". While we're going to ignore the
+		// intent of retransmitting the packet, there's still a valid
+		// encapsulated packet here, which for the purpose of being
+		// useful, we should still emit.
 		if (hdr->version == 1 &&
-		    hdr->type == TZSP_TYPE_RECEIVED_TAG_LIST)
+		    (hdr->type == TZSP_TYPE_RECEIVED_TAG_LIST ||
+		     hdr->type == TZSP_TYPE_PACKET_FOR_TRANSMIT))
 		{
 			while (p < end) {
 				// some packets only have the type field, which is
