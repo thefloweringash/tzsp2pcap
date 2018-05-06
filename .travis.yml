@@ -16,4 +16,10 @@ addons:
     packages:
       libpcap-dev
 
+matrix:
+  include:
+    - language: nix
+      script: nix-build
+      addons:
+
 script: make
