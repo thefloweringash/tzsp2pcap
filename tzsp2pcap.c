@@ -453,12 +453,12 @@ int main(int argc, char **argv) {
 			my_pcap.postrotate_command = strdup(optarg);
 			break;
 
-		default:
-			retval = -1;
-
 		case 'h':
 			usage(argv[0]);
 			goto exit;
+
+		default:
+			retval = -1;
 		}
 	}
 
