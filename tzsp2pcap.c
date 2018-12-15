@@ -455,6 +455,7 @@ int main(int argc, char **argv) {
 
 		default:
 			retval = -1;
+			/* FALLTHRU */
 
 		case 'h':
 			usage(argv[0]);
