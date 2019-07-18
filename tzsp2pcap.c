@@ -325,7 +325,7 @@ static int maybe_rotate(struct my_pcap_t *my_pcap) {
 			return errno;
 		}
 		if (now - my_pcap->rotation_start_time >= my_pcap->rotation_interval) {
-			my_pcap->rotation_start_time = now;
+			my_pcap->rotation_start_time += my_pcap->rotation_interval;
 			return rotate_dumper(my_pcap);
 		}
 	}
@@ -354,7 +354,7 @@ static void usage(const char *program) {
 	        "tzsp2pcap: receive tazmen sniffer protocol over udp and\n"
 	        "produce pcap formatted output\n"
 	        "\n"
-	        "Usage %s [-h] [-v] [-f] [-p PORT] [-o FILENAME] [-s SIZE] [-G SECONDS] [-C SIZE] [-z CMD]\n"
+	        "Usage %s [-h] [-v] [-f] [-p PORT] [-o FILENAME] [-s SIZE] [-G SECONDS [-a]] [-C SIZE] [-z CMD]\n"
 	        "\t-h           Display this message\n"
 	        "\t-v           Verbose (repeat to increase up to -vv)\n"
 	        "\t-f           Flush output after every packet\n"
@@ -362,6 +362,7 @@ static void usage(const char *program) {
 	        "\t-o FILENAME  Write output to FILENAME   (defaults to stdout)\n"
 	        "\t-s SIZE      Receive buffer size        (defaults to %u)\n"
 	        "\t-G SECONDS   Rotate file every n seconds\n"
+	        "\t-a           Align time base rotation to clock\n"
 	        "\t-C FILESIZE  Rotate file when FILESIZE is reached\n"
 	        "\t-z CMD       Post-rotate command to execute\n",
 	        program,
@@ -392,7 +393,7 @@ int main(int argc, char **argv) {
 	char flush_every_packet = 0;
 
 	int ch;
-	while ((ch = getopt(argc, argv, "fp:o:s:C:G:z:vh")) != -1) {
+	while ((ch = getopt(argc, argv, "fp:o:s:C:G:az:vh")) != -1) {
 		switch (ch) {
 		case 'f':
 			flush_every_packet = 1;
@@ -437,6 +438,12 @@ int main(int argc, char **argv) {
 
 			break;
 		}
+
+    case 'a':
+      if (my_pcap.rotation_interval) {
+			  my_pcap.rotation_start_time = (int)(my_pcap.rotation_start_time / my_pcap.rotation_interval) * my_pcap.rotation_interval;
+      }
+      break;
 
 		case 'C': {
 			int rotation_size_threshold = atoi(optarg);
