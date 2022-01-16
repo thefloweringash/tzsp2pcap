@@ -11,3 +11,5 @@ alterations to work with other devices.
 : tzsp2pcap -o "file.pcap" -C 1000000 # rotate file every 1MB (file.pcap.1, file.pcap.2, etc)
 : tzsp2pcap -o "file_%s.pcap" -G 10 # create new file every 10 seconds (file_UNIXTIMESTAMP.pcap)
 : tzsp2pcap -o "file.pcap" -C 1000000 -z gzip # rotate file every 1MB and gzip it (file.pcap.1.gz, file.pcap.2.gz, etc)
+: tzsp2pcap -o "file.pcap" -E WIFI -F "not wlan type mgt subtype beacon" # set data link to 802.11 (with radiotap header) and filter out all WLAN Beacon frames
+: tzsp2pcap -o "file.pcap" -F "ip host 10.0.0.1" # Apply filter "ip host 10.0.0.1" # The filter only be compiled/verified after first tzsp packet is received since no -E is given
