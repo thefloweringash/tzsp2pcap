@@ -199,7 +199,7 @@ struct my_pcap_t {
 
 	const char *filter_str;	// tcpdump filter text
 	struct bpf_program bpf;	// compiled filter
-	
+
 	int verbose;
 
 	int rotation_interval;
@@ -366,7 +366,7 @@ static void run_postrotate_command(struct my_pcap_t *my_pcap, const char *filena
 static int init_pcap_dump(struct my_pcap_t *my_pcap, int linktype, int recv_buffer_size) {
 	if (my_pcap->verbose >= 1) {
 		fprintf(stderr, "Initializing pcap library - pcap_open_dead(%d,%d)\n",
-				linktype, recv_buffer_size);
+			linktype, recv_buffer_size);
 	}
 
 	pcap_t *pcap = pcap_open_dead(linktype, recv_buffer_size);
@@ -380,16 +380,16 @@ static int init_pcap_dump(struct my_pcap_t *my_pcap, int linktype, int recv_buff
 		if (my_pcap->verbose >= 1) {
 			fprintf(stderr, "Compiling tcpdump filter \"%s\"\n", my_pcap->filter_str);
 		}
-		
-		if (pcap_compile(my_pcap->pcap, &(my_pcap->bpf),
-						 my_pcap->filter_str, 1, PCAP_NETMASK_UNKNOWN) == PCAP_ERROR ) {
-			pcap_perror(my_pcap->pcap,"Error compiling packet filter");				 
+
+		if (pcap_compile(my_pcap->pcap, &(my_pcap->bpf), my_pcap->filter_str, 1,
+				 PCAP_NETMASK_UNKNOWN) == PCAP_ERROR ) {
+			pcap_perror(my_pcap->pcap,"Error compiling packet filter");
 			return 0;
 		}
 	}
 	return 1;
 }
-	
+
 static int open_dumper(struct my_pcap_t *my_pcap, const char *filename) {
 	if (my_pcap->verbose >= 1) {
 		fprintf(stderr, "Opening output file: %s\n", filename);
@@ -401,7 +401,7 @@ static int open_dumper(struct my_pcap_t *my_pcap, const char *filename) {
 	fp = fopen(filename, "wb");
 	if (!fp) {
 		fprintf(stderr, "Could not open output file %s: %s\n",
-				filename, strerror(errno));
+			filename, strerror(errno));
 		return -1;
 	}
 
@@ -560,7 +560,7 @@ int main(int argc, char **argv) {
 
 	char flush_every_packet = 0;
 	int linktype = -1;		// Data link type not yet determined
-	
+
 	int ch;
 	while ((ch = getopt(argc, argv, "fp:o:s:C:G:z:vhF:E:")) != -1) {
 		switch (ch) {
@@ -681,7 +681,7 @@ int main(int argc, char **argv) {
 
 	// Increase packet buffer size to allow for an extra header
 	recv_buffer_size += HEADER_RESERVED_BYTES;
-	
+
 	// Initialize pcap dump and filter if we already know the data link type
 	if (linktype != -1) {
 		if (!init_pcap_dump(&my_pcap, linktype, recv_buffer_size)) {
@@ -689,7 +689,7 @@ int main(int argc, char **argv) {
 			goto err_cleanup_pcap;
 		}
 	}
-	
+
 	{
 		const char *initial_filename = get_filename(&my_pcap);
 		if (!initial_filename) {
@@ -794,7 +794,7 @@ next_packet:
 			        hdr->type,
 			        name_tag(encap_type,
 			                 tzsp_encap_names, ARRAYSZ(tzsp_encap_names)),
-					encap_type);
+				encap_type);
 		}
 
 		char got_end_tag = 0;
@@ -807,7 +807,7 @@ next_packet:
 		uint16_t rth_frequency = 0;
 		uint16_t rth_chanflags = 0;
 		char rth_signal = 0;
-		
+
 		// We should only have to deal with packets of type "Received"
 		// here, since we are sinking packets. However, some sniffers
 		// send packets as "Transmit". While we're going to ignore the
@@ -830,7 +830,7 @@ next_packet:
 					        name_tag(tag->type,
 					                 tzsp_tag_names, ARRAYSZ(tzsp_tag_names)),
 					        tag->type,
-							tag->type==TZSP_TAG_END?0:tag->length);
+						tag->type==TZSP_TAG_END?0:tag->length);
 				}
 
 				if (tag->type == TZSP_TAG_END) {
@@ -866,7 +866,7 @@ next_packet:
 								rth_signal = (signed char) tag->data[0];
 							break;
 					}
-					
+
 					p += sizeof(struct tzsp_tag) + tag->length;
 				}
 			}
@@ -891,7 +891,7 @@ next_packet:
 		// Handle lazy initialization of pcap dump, based on capture data link type
 		if (!my_pcap.pcap) {
 			int linktype = DLT_EN10MB;
-			
+
 			if (encap_type == TZSP_ENCAP_802_11)
 				linktype = DLT_IEEE802_11_RADIO;
 
@@ -907,7 +907,7 @@ next_packet:
 			if (my_pcap.verbose >= 1) {
 				fprintf(stderr, "Linking pcap dump to output file %s\n", my_pcap.filename);
 			}
-			dumper = pcap_dump_fopen(my_pcap.pcap, my_pcap.fp);			
+			dumper = pcap_dump_fopen(my_pcap.pcap, my_pcap.fp);
 			if (!dumper) {
 				fprintf(stderr, "Error linking pcap dump to output file handle: %s\n", pcap_geterr(my_pcap.pcap));
 				retval = -1;
@@ -915,7 +915,7 @@ next_packet:
 			}
 			my_pcap.dumper = dumper;
 		}
-		
+
 		char *pdata = p;
 		// Add radiotap header for 802.11 packets. We build it from end to start
 		if (encap_type == TZSP_ENCAP_802_11) {
@@ -929,8 +929,7 @@ next_packet:
 				*((uint8_t*)(--p)) = rth_frequency & 0xFF;
 			}
 			// Pad with extra alignment byte if either Flags or Rate, but not both or neither, is present
-			if ( ( (rth_ispresent >> 1) +
-				   (rth_ispresent >> 2) ) & 1 )
+			if ( ((rth_ispresent >> 1) + (rth_ispresent >> 2)) & 1)
 				*(--p) = 0;
 			if (rth_ispresent&RTH_BITMASK_RATE)
 				*((uint8_t*)(--p)) = rth_rate;
@@ -956,7 +955,7 @@ next_packet:
 			.len = readsz - (p - recv_buffer),
 		};
 		gettimeofday(&pcap_hdr.ts, NULL);
-		
+
 		int dump_packet= 1;
 		if (my_pcap.filter_str) {
 			dump_packet = pcap_offline_filter(&my_pcap.bpf, &pcap_hdr, (unsigned char *) p);
@@ -968,7 +967,7 @@ next_packet:
 			if (my_pcap.verbose >= 2)
 				fprintf(stderr, "===> packet rejected by filter expression <===\n");
 		}
-		
+
 		// since pcap_dump doesn't report errors directly, we have
 		// to approximate by checking its underlying file.
 		if (ferror(my_pcap.fp)) {
@@ -1016,7 +1015,7 @@ err_cleanup_pipe:
 exit:
 	if (my_pcap.filter_str)
 		free((void*) my_pcap.filter_str);
-		
+
 	if (my_pcap.filename_template)
 		free((void*) my_pcap.filename_template);
 
