@@ -5,11 +5,13 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <fcntl.h>
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>
 #include <string.h>
 #include <time.h>
+#include <getopt.h>
 
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -86,11 +88,13 @@ struct my_pcap_t {
 };
 
 static int self_pipe_fds[2];
+static int extcap_mode = 0;
 
 static void request_terminate_handler(int signum) {
 	signal(signum, SIG_DFL);
 
-	fprintf(stderr, "Caught signal, exiting (once more to force)\n");
+	if (!extcap_mode)
+        fprintf(stderr, "Caught signal, exiting (once more to force)\n");
 
 	char data = 0;
 	if (write(self_pipe_fds[1], &data, sizeof(data)) == -1) {
@@ -389,11 +393,60 @@ int main(int argc, char **argv) {
 	    .postrotate_command      = NULL,
 	};
 
-	char flush_every_packet = 0;
+    char flush_every_packet = 0;
+
+    static struct option long_options[] = {
+                {"extcap-interfaces",     no_argument,       0, 0},
+                {"extcap-interface",      required_argument, 0, 0},
+                {"extcap-version",        required_argument, 0, 0},
+                {"extcap-config",         no_argument,       0, 0},
+                {"extcap-dlts",           no_argument,       0, 0},
+                {"extcap-capture-filter", required_argument, 0, 0},
+                {"capture",               no_argument,       0, 0},
+                {"fifo",                  required_argument, 0, 0},
+                {0, 0,0, 0}
+        };
 
 	int ch;
-	while ((ch = getopt(argc, argv, "fp:o:s:C:G:z:vh")) != -1) {
+	int option_index = 0;
+	while ((ch = getopt_long(argc, argv, "fp:o:s:C:G:z:vh", long_options, &option_index)) != -1) {
 		switch (ch) {
+		case '\0':
+			if (long_options[option_index].flag != 0)
+				break;
+
+			const char *option_name = long_options[option_index].name;
+
+			if (!strcmp(option_name, "extcap-interfaces")) {
+			    printf("extcap {version=0.1.0}{help=file:///no/help}\n"
+                       "interface {value=tzsp2pcap}{display=Mikrotik capture protocol}\n");
+			    exit(0);
+			}
+
+            if (!strcmp(option_name, "extcap-config")) {
+                exit(0);
+            }
+
+            if (!strcmp(option_name, "extcap-dlts")) {
+                printf("dlt {number=147}{name=tzsp2pcap}{display=TZSP to pcap DLT}\n");
+                exit(0);
+            }
+
+            if (!strcmp(option_name, "fifo")) {
+                if (my_pcap.filename_template) {
+                    free((void*) my_pcap.filename_template);
+                }
+                my_pcap.filename_template = strdup(optarg);
+                break;
+            }
+
+            if (!strcmp(option_name, "capture")) {
+                extcap_mode = 1;
+                flush_every_packet = 1;
+                break;
+            }
+
+            break;
 		case 'f':
 			flush_every_packet = 1;
 			break;
